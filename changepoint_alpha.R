@@ -5,6 +5,13 @@
 
 #### install package changepoint
 library(changepoint)
+library(hexbin)
+library(RColorBrewer)
+library(GenomeInfoDb)
+library(GenomicRanges)
+library(pheatmap)
+library(ggplot2)
+
 ### RnBeads should also be installed, although it is used solely for the methylation color scheme
 
 ##### prepare input data first
@@ -13,42 +20,48 @@ coords ## a coherent data frame of window genomic coordinates (chr, start, end)
 
 #### set a working directory
 ANALYSIS_DIR<-"/tmp"
-
+REFERENCE_DIR<-"/ngs_share/data/genomes/Hsapiens/hg19/seq/"
 #################################### START  #################################### 
 
 breakpoints_universe<-list()
 
-ANALYSIS_NAME<-"All_samples_changepoint_pelt_mbic_20kb_final"
+ANALYSIS_NAME<-"PMD_calling_changepoint"
 dir.create(file.path(ANALYSIS_DIR, ANALYSIS_NAME))
 breakpoints_universe[[ANALYSIS_NAME]]<-list()
 
 sample_names<-colnames(mmatr)
 
 for(sample in sample_names){
+    print(sample)
+    sample_profile<-mmatr[,sample]
     
-    sample_profile<-mmatr[,samples]
-    
-    nna.pos<-which(!is.na(sample_profile))
-    
-    jumps<-which(diff(c(1,nna.pos)) != 1) 
-    
-    coords.na<-cbind(coords, 
-            {v<-rep("", nrow(coords));v[-nna.pos]<-"NA";v},
-            {v<-rep("", nrow(coords));v[nna.pos[jumps]]<-"start";v},
-            {v<-rep("", nrow(coords));v[nna.pos[jumps-1]]<-"end";v},
-            {v<-rep(0, nrow(coords));v[nna.pos[2:length(nna.pos)]]<-diff(nna.pos);v}
-    )
-    head(coords.na, n=200)
-    
-    
-    intervals.na<-lapply(1:(length(jumps)-1), function(idx) nna.pos[jumps[idx]]:nna.pos[(jumps[idx+1]-1)])
-    
-    intervals.na.starts<-sapply(1:(length(jumps)-1), function(idx) nna.pos[jumps[idx]])
-    intervals.na.ends<-sapply(1:(length(jumps)-1), function(idx) nna.pos[(jumps[idx+1]-1)])
-    
+    na.pos<-which(is.na(sample_profile))
+    if(length(na.pos)>0){
+        nna.pos<-which(!is.na(sample_profile))
+        
+        jumps<-which(diff(c(1,nna.pos)) != 1) 
+        
+        coords.na<-cbind(coords, 
+                {v<-rep("", nrow(coords));v[-nna.pos]<-"NA";v},
+                {v<-rep("", nrow(coords));v[nna.pos[jumps]]<-"start";v},
+                {v<-rep("", nrow(coords));v[nna.pos[jumps-1]]<-"end";v},
+                {v<-rep(0, nrow(coords));v[nna.pos[2:length(nna.pos)]]<-diff(nna.pos);v}
+        )
+        head(coords.na, n=200)
+        
+        
+        intervals.na<-lapply(1:(length(jumps)-1), function(idx) nna.pos[jumps[idx]]:nna.pos[(jumps[idx+1]-1)])
+        
+        intervals.na.starts<-sapply(1:(length(jumps)-1), function(idx) nna.pos[jumps[idx]])
+        intervals.na.ends<-sapply(1:(length(jumps)-1), function(idx) nna.pos[(jumps[idx+1]-1)])
+    }else{
+        intervals.na<-list(c(1:nrow(coords)))
+        intervals.na.starts<-c(1L)
+        intervals.na.ends<-c(nrow(coords))
+    }
     #intervals<-intervals.na
     
-    chromosome.starts<-which(diff(as.numeric(coords$V1))>0)
+    chromosome.starts<-which(diff(as.numeric(coords[[1]]))>0)
     
     diff_mat_start<-sign(sapply(intervals.na.starts, "-", chromosome.starts))
     diff_mat_end<-sign(sapply(intervals.na.ends, "-", chromosome.starts))
@@ -180,15 +193,15 @@ for(sample in sample_names){
                 cpt.coords<-cbind(coords[cpt.intervals,],cpt.intervals, rep(".", length(cpt.intervals)),  rep(".", length(cpt.intervals)))
                 
                 write.table(cpt.coords, file=file.path(ANALYSIS_DIR, ANALYSIS_NAME, 
-                                sprintf("changepoint.coordinates_%s_%s_%s_%s_%s.named.bed", paste(sample_names, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])), 
+                                sprintf("changepoint.coordinates_%s_%s_%s_%s_%s.named.bed", paste(sample, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])), 
                         quote=FALSE, row.names=FALSE, col.names=FALSE)
                 
                 cpt.coords[,1]<-gsub("^", "chr", cpt.coords[,1])
                 write.table(cpt.coords[,c(1:3)], file=file.path(ANALYSIS_DIR, ANALYSIS_NAME, 
-                                sprintf("changepoint.coordinates.%s_%s_%s_%s_%s.short.bed", paste(sample_names, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])), 
+                                sprintf("changepoint.coordinates.%s_%s_%s_%s_%s.short.bed", paste(sample, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])), 
                         quote=FALSE, row.names=FALSE, col.names=FALSE)
                 
-                breakpoints_universe[[ANALYSIS_NAME]][[sample_names]]<-cpt.intervals
+                breakpoints_universe[[ANALYSIS_NAME]][[sample]]<-cpt.intervals
                 
                 ### write out the complete set of segments
                 
@@ -228,40 +241,40 @@ for(sample in sample_names){
                 
                 
                 write.table(region.coords, file=file.path(ANALYSIS_DIR, ANALYSIS_NAME, 
-                                sprintf("region.coordinates.%s_%s_%s_%s_%s.bed", paste(sample_names, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])), 
+                                sprintf("region.coordinates.%s_%s_%s_%s_%s.bed", paste(sample, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])), 
                         quote=FALSE, row.names=FALSE, col.names=FALSE)
                 
                 write.table(region.coords[filter_low, ], file=file.path(ANALYSIS_DIR, ANALYSIS_NAME, 
-                                sprintf("region.coordinates.%s_%s_%s_%s_%s_low.bed", paste(sample_names, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])), 
+                                sprintf("region.coordinates.%s_%s_%s_%s_%s_low.bed", paste(sample, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])), 
                         quote=FALSE, row.names=FALSE, col.names=FALSE)
                 
                 write.table(region.coords[filter_med,], file=file.path(ANALYSIS_DIR, ANALYSIS_NAME, 
-                                sprintf("region.coordinates.%s_%s_%s_%s_%s_med.bed", paste(sample_names, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])), 
+                                sprintf("region.coordinates.%s_%s_%s_%s_%s_med.bed", paste(sample, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])), 
                         quote=FALSE, row.names=FALSE, col.names=FALSE)
                 
                 write.table(region.coords[filter_high,], file=file.path(ANALYSIS_DIR, ANALYSIS_NAME, 
-                                sprintf("region.coordinates.%s_%s_%s_%s_%s_high.bed", paste(sample_names, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])), 
+                                sprintf("region.coordinates.%s_%s_%s_%s_%s_high.bed", paste(sample, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])), 
                         quote=FALSE, row.names=FALSE, col.names=FALSE)
                 
                 write.table(region.coords[,c(1:3,5)], file=file.path(ANALYSIS_DIR, ANALYSIS_NAME, 
-                                sprintf("region.means.%s_%s_%s_%s_%s.bedGraph", paste(sample_names, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])), 
+                                sprintf("region.means.%s_%s_%s_%s_%s.bedGraph", paste(sample, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])), 
                         quote=FALSE, row.names=FALSE, col.names=FALSE)
                 write.table(region.coords[,c(1:3,6)], file=file.path(ANALYSIS_DIR, ANALYSIS_NAME, 
-                                sprintf("region.vars.%s_%s_%s_%s_%s.bedGraph", paste(sample_names, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])), 
+                                sprintf("region.vars.%s_%s_%s_%s_%s.bedGraph", paste(sample, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])), 
                         quote=FALSE, row.names=FALSE, col.names=FALSE)
                 
-                pdf(file.path(ANALYSIS_DIR, ANALYSIS_NAME, sprintf("mean_vs_sd_%s_%s_%s_%s_%s_new.pdf",paste(sample_names, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])))
+                pdf(file.path(ANALYSIS_DIR, ANALYSIS_NAME, sprintf("mean_vs_sd_%s_%s_%s_%s_%s_new.pdf",paste(sample, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])))
                 plot(seg.means, sqrt(seg.vars), cex=0.1, ylim=c(0,0.4))
                 dev.off()
                 
-                pdf(file.path(ANALYSIS_DIR, ANALYSIS_NAME, sprintf("mean_vs_sd_smoothed_%s_%s_%s_%s_%s.pdf",paste(sample_names, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])))
+                pdf(file.path(ANALYSIS_DIR, ANALYSIS_NAME, sprintf("mean_vs_sd_smoothed_%s_%s_%s_%s_%s.pdf",paste(sample, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])))
                 smoothScatter(seg.means, sqrt(seg.vars))
                 dev.off()
                 
                 
                 var.bin<-hexbin(seg.means, seg.vars, xbins=75)
                 
-                pdf(file.path(ANALYSIS_DIR, ANALYSIS_NAME, sprintf("mean_vs_sd_hexbin_%s_%s_%s_%s_%s.pdf",paste(sample_names, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])))
+                pdf(file.path(ANALYSIS_DIR, ANALYSIS_NAME, sprintf("mean_vs_sd_hexbin_%s_%s_%s_%s_%s.pdf",paste(sample, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])))
                 my_colors=colorRampPalette(rev(brewer.pal(11,'Spectral')))
                 #my_colors=colorRampPalette(c("blue", "yellow", "red"), space = "Lab")
                 par(mgp=c(3, 1, 0), cex.axis=1.5)
@@ -272,18 +285,18 @@ for(sample in sample_names){
                 dev.off()
                 
                 
-                pdf(file.path(ANALYSIS_DIR, ANALYSIS_NAME, sprintf("mean_vs_length_smoothed_%s_%s_%s_%s_%s.pdf",paste(sample_names, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])))
+                pdf(file.path(ANALYSIS_DIR, ANALYSIS_NAME, sprintf("mean_vs_length_smoothed_%s_%s_%s_%s_%s.pdf",paste(sample, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])))
                 smoothScatter(seg.lens, seg.means)
                 dev.off()
                 
-                pdf(file.path(ANALYSIS_DIR, ANALYSIS_NAME, sprintf("mean_vs_length_smoothed_zoomed_%s_%s_%s_%s_%s.pdf",paste(sample_names, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])))
+                pdf(file.path(ANALYSIS_DIR, ANALYSIS_NAME, sprintf("mean_vs_length_smoothed_zoomed_%s_%s_%s_%s_%s.pdf",paste(sample, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])))
                 smoothScatter(seg.lens, seg.means, xlim=c(0,100))
                 dev.off()
                 
                 
                 len.bin<-hexbin(seg.lens, seg.means, xbins=75)
                 
-                pdf(file.path(ANALYSIS_DIR, ANALYSIS_NAME, sprintf("mean_vs_length_hexbin_%s_%s_%s_%s_%s.pdf",paste(sample_names, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])))
+                pdf(file.path(ANALYSIS_DIR, ANALYSIS_NAME, sprintf("mean_vs_length_hexbin_%s_%s_%s_%s_%s.pdf",paste(sample, collapse="_"), approach, methods[method.i],penalties[penalty.i], test.stats[ts])))
                 my_colors=colorRampPalette(rev(brewer.pal(11,'Spectral')))
                 #my_colors=colorRampPalette(c("blue", "yellow", "red"), space = "Lab")
                 par(mgp=c(3, 1, 0), cex.axis=1.5)
@@ -302,8 +315,9 @@ for(sample in sample_names){
 
 all.bpts<-sort(unique(Reduce("c", breakpoints_universe[[ANALYSIS_NAME]])))
 
-full_genome<-read.table(file.path(ANALYSIS_DIR, "tracks", "genome.file"))
-seqinfo.obj<-Seqinfo(seqnames=as.character(full_genome$V1), seqlengths=full_genome$V2, genome="hg19")
+full_genome<-read.table(file.path(REFERENCE_DIR, "hg19.chrom.sizes"))
+
+seqinfo.obj<-Seqinfo(seqnames=gsub("chr", "", as.character(full_genome$V1)), seqlengths=full_genome$V2, genome="hg19")
 seqinfo.obj<-NULL
 
 granges.all.bpts<-GRanges(coords[all.bpts,1], IRanges(coords[all.bpts,2], coords[all.bpts,3]), "*", seqinfo=seqinfo.obj)
@@ -362,7 +376,7 @@ summarized.data.bps<-do.call("rbind", lapply(seq_along(granges.all.reduced.se), 
 nna<-which(rowSums(is.na(summarized.data.bps))==0)
 
 phr<-pheatmap(summarized.data.bps[nna,-10], 
-        annotation_col=sample_sheet_wgbs[-10,c(6,8:12)],
+        annotation_col=sample_sheet,
         col=RnBeads:::get.methylation.color.panel(),
         scale="none", cluster_true=FALSE,
         cutree_rows=7,
@@ -386,7 +400,7 @@ summarized.data.segments<-do.call("rbind", lapply(seq_along(segments), function(
 nna<-which(rowSums(is.na(summarized.data.segments))==0)
 
 phr<-pheatmap(summarized.data.segments[nna,-10], 
-        annotation_col=sample_sheet_wgbs[,c(6,8:12)],
+        annotation_col=sample_sheet,
         col=RnBeads:::get.methylation.color.panel(),
         scale="none", cluster_true=FALSE,
         cutree_rows=6,
@@ -455,7 +469,7 @@ mcols(reduced_segments)<-pdata
 
 png(file.path(ANALYSIS_DIR, ANALYSIS_NAME,"segments_heatmap_reduced_new_check.png"), width = 500, height = 500)
 phr<-pheatmap:::pheatmap(pdata, 
-        annotation_col=sample_sheet_wgbs[,c(6,8:12)],
+        annotation_col=sample_sheet,
         col=RnBeads:::get.methylation.color.panel(),
         scale="none", cluster_true=FALSE,
         cutree_rows=6,
@@ -475,7 +489,7 @@ png(file.path(ANALYSIS_DIR, ANALYSIS_NAME,"segments_heatmap_reduced_new_horiz.pn
 res<-pheatmap:::pheatmap(t(pdata), 
         col=RnBeads:::get.methylation.color.panel(),
         scale="none", cluster_true=FALSE, cutree_cols=6,
-        annotation_row=sample_sheet_wgbs[,c(8),drop=FALSE],
+        annotation_row=sample_sheet,
         annotation_names_row=FALSE,
         filename=NA
 )
@@ -484,7 +498,7 @@ dev.off()
 
 png(file.path(ANALYSIS_DIR, ANALYSIS_NAME,"segments_heatmap_reduced_new_with_clusters_check.png"))
 phr_dummy<-pheatmap:::pheatmap(pdata, 
-        annotation_col=sample_sheet_wgbs[,c(6,8:12)],
+        annotation_col=sample_sheet,
         annotation_row=data.frame(Cluster=domain_clusters2, row.names=paste("domain", 1:nrow(pdata))), 
         show_rownames=FALSE,
         col=RnBeads:::get.methylation.color.panel(),
