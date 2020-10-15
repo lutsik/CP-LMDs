@@ -1,2 +1,2 @@
 # CP-PMDs
-Unstructured Code for calling PMDs in DNA methylation data using change point algorithms
+Unstructured Code for calling Large Methylation Domains (LMDs) in whole-genome bisulfite sequencing data using changepoint algorithms
